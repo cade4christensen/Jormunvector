@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Jormunvector</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+<!-- ── Toolbar ── -->
+<div id="toolbar">
+  <button class="tool-btn active" id="btn-segment" title="Segment — 2-click line  [S]" onclick="setTool('segment')">—</button>
+  <div class="tool-label">seg</div>
+  <button class="tool-btn"        id="btn-line"    title="Polyline  [L]"              onclick="setTool('line')">⌇</button>
+  <div class="tool-label">line</div>
+  <button class="tool-btn"        id="btn-curve"   title="Smooth Curve  [C]"          onclick="setTool('curve')">⌒</button>
+  <div class="tool-label">curve</div>
+  <button class="tool-btn"        id="btn-ellipse" title="Ellipse  [E]"               onclick="setTool('ellipse')">○</button>
+  <div class="tool-label">ellipse</div>
+  <button class="tool-btn"        id="btn-rect"    title="Rectangle  [R]"             onclick="setTool('rect')">□</button>
+  <div class="tool-label">rect</div>
+  <button class="tool-btn"        id="btn-freehand" title="Freehand  [F]"             onclick="setTool('freehand')">∿</button>
+  <div class="tool-label">free</div>
+  <div class="tool-divider"></div>
+  <button class="tool-btn"        id="btn-select"  title="Select / Edit nodes  [V]"   onclick="setTool('select')"><svg width="12" height="14" viewBox="0 0 12 14" fill="currentColor"><path d="M1 1L1 12L4 9L6.5 13.5L8.5 12.5L6 8L10.5 8Z"/></svg></button>
+  <div class="tool-label">select</div>
+  <div class="tool-divider"></div>
+  <button class="tool-btn" id="btn-undo" title="Undo  [Ctrl+Z]" onclick="undo()">↩</button>
+  <div class="tool-label">undo</div>
+  <button class="tool-btn" id="btn-redo" title="Redo  [Ctrl+Shift+Z]" onclick="redo()">↪</button>
+  <div class="tool-label">redo</div>
+  <div class="tool-divider"></div>
+  <button class="tool-btn" id="btn-grid" title="Snap to grid  [G]" onclick="toggleSnapGrid()">⊞</button>
+  <div class="tool-label">grid</div>
+</div>
+
+<!-- ── Canvas ── -->
+<div id="main">
+  <div id="canvas-area">
+    <!-- Jormungandr — the world serpent eating its own tail -->
+    <div id="jormungandr" title="Jormungandr">
+      <svg viewBox="0 0 64 64" width="58" height="58" xmlns="http://www.w3.org/2000/svg">
+        <!-- Body ring: 320° clockwise arc, tail at θ=20° (50.8,38.8) → head-base at θ=340° (50.8,25.2) -->
+        <path d="M 50.8 38.8 A 20 20 0 1 1 50.8 25.2"
+          fill="none" stroke="#4ade80" stroke-width="6" stroke-linecap="round"/>
+        <!-- Scale marks: radial ticks at 30° intervals along the body -->
+        <g stroke="#4ade80" stroke-width="1.2" stroke-linecap="round">
+          <line x1="40.5" y1="46.7" x2="43.5" y2="51.9"/><!-- θ=60°  -->
+          <line x1="32"   y1="49"   x2="32"   y2="55"/>  <!-- θ=90°  -->
+          <line x1="23.5" y1="46.7" x2="20.5" y2="51.9"/><!-- θ=120° -->
+          <line x1="17.3" y1="40.5" x2="12.1" y2="43.5"/><!-- θ=150° -->
+          <line x1="15"   y1="32"   x2="9"    y2="32"/>  <!-- θ=180° -->
+          <line x1="17.3" y1="23.5" x2="12.1" y2="20.5"/><!-- θ=210° -->
+          <line x1="23.5" y1="17.3" x2="20.5" y2="12.1"/><!-- θ=240° -->
+          <line x1="32"   y1="15"   x2="32"   y2="9"/>   <!-- θ=270° -->
+          <line x1="40.5" y1="17.3" x2="43.5" y2="12.1"/><!-- θ=300° -->
+        </g>
+        <!-- Head oval (angled 20° from vertical, matching body tangent direction) -->
+        <ellipse cx="49" cy="20.5" rx="3.5" ry="5.5"
+          fill="#4ade80" transform="rotate(20, 49, 20.5)"/>
+        <!-- Brow ridge highlight -->
+        <path d="M 46 17.5 Q 48.5 15 51.5 16.5"
+          fill="none" stroke="#4ade80" stroke-width="0.9" stroke-linecap="round" opacity="0.6"/>
+        <!-- Eye (outer side of curve) -->
+        <circle cx="50.5" cy="19" r="1.3" fill="#4ade80"/>
+        <circle cx="50.8" cy="19.2" r="0.55" fill="#09090b"/>
+        <!-- Forked tongue reaching toward tail -->
+        <path d="M 50.8 25.5 L 52 28.5 M 52 28.5 L 51 31 M 52 28.5 L 53 31"
+          fill="none" stroke="#4ade80" stroke-width="0.9" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div id="zoom-controls">
+      <div class="zc-row-top">
+        <button class="zc-cell" onclick="panBy(0,50)" title="Pan up">↑</button>
+      </div>
+      <div class="zc-row-mid">
+        <button class="zc-cell zc-l" onclick="panBy(50,0)"  title="Pan left">←</button>
+        <button class="zc-cell" id="zoom-pct" onclick="resetZoom()" title="Reset view [Ctrl+0]">100%</button>
+        <button class="zc-cell zc-r" onclick="panBy(-50,0)" title="Pan right">→</button>
+      </div>
+      <div class="zc-row-bot">
+        <button class="zc-cell" onclick="panBy(0,-50)" title="Pan down">↓</button>
+      </div>
+      <div class="zc-row-zoom">
+        <button class="zc-cell zc-zm" onclick="zoomOut()" title="Zoom out">−</button>
+        <button class="zc-cell zc-zp" onclick="zoomIn()"  title="Zoom in">+</button>
+      </div>
+    </div>
+    <div id="canvas-wrapper" style="transform-origin:center center;will-change:transform;display:inline-block;">
+    <svg id="svg-canvas" viewBox="0 0 200 200" width="500" height="500">
+      <g id="grid-layer">
+        <rect x="0" y="0" width="200" height="200" fill="none" stroke="#4ade80" stroke-width="0.4" opacity="0.2"/>
+        <line x1="100" y1="0"   x2="100" y2="200" stroke="#4ade80" stroke-width="0.2" opacity="0.15"/>
+        <line x1="0"   y1="100" x2="200" y2="100" stroke="#4ade80" stroke-width="0.2" opacity="0.15"/>
+        <line x1="50"  y1="0"   x2="50"  y2="200" stroke="#4ade80" stroke-width="0.15" opacity="0.07"/>
+        <line x1="150" y1="0"   x2="150" y2="200" stroke="#4ade80" stroke-width="0.15" opacity="0.07"/>
+        <line x1="0"   y1="50"  x2="200" y2="50"  stroke="#4ade80" stroke-width="0.15" opacity="0.07"/>
+        <line x1="0"   y1="150" x2="200" y2="150" stroke="#4ade80" stroke-width="0.15" opacity="0.07"/>
+      </g>
+      <g id="shapes-layer"></g>
+      <g id="edit-layer"></g>
+      <g id="wip-layer"></g>
+    </svg>
+    </div>
+  </div>
+
+  <div id="statusbar">
+    <span id="status-tool">tool: segment</span>
+    <span id="status-pos">x: —  y: —</span>
+    <span id="view-info">100%</span>
+    <span id="status-hint">click start · click end · done</span>
+  </div>
+</div>
+
+<!-- ── Sidebar ── -->
+<div id="sidebar">
+
+  <!-- AI Generate -->
+  <div class="sidebar-section" id="ai-panel">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <h3 style="margin-bottom:0">AI Generate</h3>
+      <button class="copy-btn" id="ai-key-toggle" onclick="toggleGeminiKey()" title="Gemini API key (free at aistudio.google.com)">⚙ key</button>
+    </div>
+    <div id="ai-key-row" style="display:none;margin-bottom:8px">
+      <div class="prop-row" style="margin-bottom:4px">
+        <input type="password" class="ai-key-input" id="ai-key" placeholder="Gemini API key from aistudio.google.com">
+        <button class="copy-btn" style="margin-left:4px;flex-shrink:0" onclick="saveGeminiKey()">save</button>
+      </div>
+      <div style="font-size:9px;color:#3f3f46;line-height:1.4">Free tier: 1500 req/day · no card needed</div>
+    </div>
+    <textarea id="ai-prompt" placeholder="describe anything… or use keywords: circle, star, fish, frog, tadpole, cat, rabbit, mushroom, bird, cloud, lightning, flame, gear, house, tree, flower, snake, person…"></textarea>
+    <button class="expand-btn" id="ai-gen-btn" onclick="aiGenerate()">✦ Generate</button>
+    <div id="ai-status"></div>
+  </div>
+
+  <div class="sidebar-section">
+    <h3>Properties</h3>
+    <div class="prop-row">
+      <span class="prop-label">stroke</span>
+      <input type="color" id="prop-stroke" value="#4ade80" oninput="syncStrokeFromColor()">
+      <input type="text" class="hex-input" id="prop-stroke-hex" value="#4ade80" maxlength="7" placeholder="#rrggbb" oninput="syncColorFromHex('stroke')">
+      <span class="none-label">none</span>
+      <input type="checkbox" id="prop-stroke-none" title="no stroke" onchange="updateProps()">
+    </div>
+    <div class="prop-row">
+      <span class="prop-label">fill</span>
+      <input type="color" id="prop-fill" value="#4ade80" oninput="syncFillFromColor()">
+      <input type="text" class="hex-input" id="prop-fill-hex" value="#4ade80" maxlength="7" placeholder="#rrggbb" oninput="syncColorFromHex('fill')">
+      <span class="none-label">none</span>
+      <input type="checkbox" id="prop-fill-none" checked title="no fill" onchange="updateProps()">
+    </div>
+    <div class="prop-row">
+      <span class="prop-label">stroke-width</span>
+      <input type="number" id="prop-sw" value="1.5" min="0.1" max="20" step="0.1" oninput="updateProps()">
+    </div>
+    <div class="prop-row">
+      <span class="prop-label">opacity</span>
+      <input type="range" id="prop-opacity" value="100" min="0" max="100" oninput="updateProps()">
+      <span id="opacity-val" style="min-width:32px;color:#71717a">100%</span>
+    </div>
+    <div class="prop-row">
+      <span class="prop-label">dash</span>
+      <select class="dash-select" id="prop-dash" onchange="updateProps()">
+        <option value="">solid</option>
+        <option value="4 2">dashed</option>
+        <option value="1 3">dotted</option>
+        <option value="8 3">long dash</option>
+        <option value="8 3 1 3">dash-dot</option>
+      </select>
+    </div>
+    <div id="path-closed-row" class="prop-row" style="display:none">
+      <span class="prop-label">path</span>
+      <button class="copy-btn" id="btn-close-path" onclick="togglePathClosed()">open</button>
+      <button class="copy-btn" style="margin-left:4px" onclick="deleteSelectedNode()" title="Delete selected node">del node</button>
+    </div>
+  </div>
+
+  <div id="group-panel" class="sidebar-section" style="display:none">
+    <h3>Group</h3>
+    <div class="prop-row">
+      <span style="flex:1;color:#52525b;font-size:10px" id="group-info"></span>
+      <button class="copy-btn" onclick="ungroupSelected()">ungroup</button>
+    </div>
+  </div>
+
+  <div id="transform-panel" class="sidebar-section" style="display:none">
+    <h3>Transform</h3>
+    <div class="prop-row">
+      <span class="prop-label">x / y</span>
+      <input type="number" id="tf-x" step="0.1" style="width:52px" oninput="applyTransformPanel()">
+      <input type="number" id="tf-y" step="0.1" style="width:52px" oninput="applyTransformPanel()">
+    </div>
+    <div class="prop-row">
+      <span class="prop-label">w / h</span>
+      <input type="number" id="tf-w" step="0.1" min="0.1" style="width:52px" oninput="applyTransformPanel()">
+      <input type="number" id="tf-h" step="0.1" min="0.1" style="width:52px" oninput="applyTransformPanel()">
+    </div>
+    <div class="prop-row">
+      <span class="prop-label">rotation</span>
+      <input type="number" id="tf-rot" step="1" value="0" style="width:52px" oninput="applyTransformPanel()">
+      <span class="none-label">deg</span>
+      <button class="copy-btn" style="margin-left:auto" onclick="if(selected!==null){const s=shapes.find(x=>x.id===selected);if(s){saveState();delete s.rotation;syncTransformPanel(s);render()}}">&#x21BA;</button>
+    </div>
+  </div>
+
+  <div id="align-panel" class="sidebar-section" style="display:none">
+    <h3>Align &amp; Distribute</h3>
+    <div class="prop-row" style="flex-wrap:wrap;gap:4px">
+      <button class="copy-btn" onclick="alignShapes('left')" title="Align left edges">&#x22A2;L</button>
+      <button class="copy-btn" onclick="alignShapes('centerH')" title="Center horiz">&mdash;C&mdash;</button>
+      <button class="copy-btn" onclick="alignShapes('right')" title="Align right edges">R&#x22A3;</button>
+      <button class="copy-btn" onclick="alignShapes('top')" title="Align top edges">&#x22A4;T</button>
+      <button class="copy-btn" onclick="alignShapes('centerV')" title="Center vert">|C|</button>
+      <button class="copy-btn" onclick="alignShapes('bottom')" title="Align bottom edges">B&#x22A5;</button>
+    </div>
+    <div class="prop-row" style="flex-wrap:wrap;gap:4px">
+      <button class="copy-btn" onclick="distributeShapes('h')" title="Distribute horiz">&#x2194;</button>
+      <button class="copy-btn" onclick="distributeShapes('v')" title="Distribute vert">&#x2195;</button>
+    </div>
+    <div id="bool-ops-row" class="prop-row" style="flex-wrap:wrap;gap:4px;display:none">
+      <span class="prop-label">boolean</span>
+      <button class="copy-btn" onclick="booleanOp('union')" title="Union paths">&#x222A;</button>
+      <button class="copy-btn" onclick="booleanOp('subtract')" title="Subtract paths">&#x2216;</button>
+      <button class="copy-btn" onclick="booleanOp('intersect')" title="Intersect paths">&#x2229;</button>
+    </div>
+  </div>
+
+  <div id="expand-panel" class="sidebar-section">
+    <h3>Expand to Shape</h3>
+    <div class="prop-row">
+      <span class="prop-label">mode</span>
+      <div class="seg-toggle">
+        <button class="seg-btn active" id="exp-uniform" onclick="setExpandMode('uniform')">uniform</button>
+        <button class="seg-btn"        id="exp-taper"   onclick="setExpandMode('taper')">taper</button>
+      </div>
+    </div>
+    <div class="prop-row" id="exp-row-uniform">
+      <span class="prop-label">width</span>
+      <input type="number" id="exp-width" value="8" min="0.5" max="100" step="0.5">
+    </div>
+    <div id="exp-row-taper" style="display:none">
+      <div class="prop-row">
+        <span class="prop-label">start width</span>
+        <input type="number" id="exp-start-w" value="10" min="0.5" max="100" step="0.5">
+      </div>
+      <div class="prop-row">
+        <span class="prop-label">end width</span>
+        <input type="number" id="exp-end-w" value="4" min="0.5" max="100" step="0.5">
+      </div>
+    </div>
+    <div class="prop-row" style="margin-top:4px">
+      <span class="prop-label">start cap</span>
+      <div class="cap-row">
+        <button class="cap-btn active" id="cap-s-flat"    onclick="setStartCap('flat')">flat</button>
+        <button class="cap-btn"        id="cap-s-round"   onclick="setStartCap('round')">round</button>
+        <button class="cap-btn"        id="cap-s-pointed" onclick="setStartCap('point')">point</button>
+      </div>
+    </div>
+    <div class="prop-row">
+      <span class="prop-label">end cap</span>
+      <div class="cap-row">
+        <button class="cap-btn active" id="cap-e-flat"    onclick="setEndCap('flat')">flat</button>
+        <button class="cap-btn"        id="cap-e-round"   onclick="setEndCap('round')">round</button>
+        <button class="cap-btn"        id="cap-e-pointed" onclick="setEndCap('point')">point</button>
+      </div>
+    </div>
+    <button class="expand-btn" onclick="expandSelected()">↔ Expand to Shape</button>
+  </div>
+
+  <div class="sidebar-section" style="flex:1;display:flex;flex-direction:column;overflow:hidden;border-bottom:none;padding-bottom:0">
+    <h3>Shapes</h3>
+    <div id="shapes-list"><div class="empty-hint">no shapes yet</div></div>
+  </div>
+
+  <div id="code-section">
+    <div id="code-header">
+      <span>SVG Output</span>
+      <div style="display:flex;gap:4px;flex-wrap:wrap">
+        <button class="copy-btn" onclick="downloadSVG()" title="Download .svg file">↓ svg</button>
+        <button class="copy-btn" onclick="downloadProject()" title="Save project as .jv file">↓ save</button>
+        <button class="copy-btn" onclick="document.getElementById('load-input').click()" title="Load .jv project file">↑ load</button>
+        <input type="file" id="load-input" accept=".jv,.json" style="display:none" onchange="loadProject(event)">
+        <button class="copy-btn" onclick="document.getElementById('import-svg-input').click()" title="Import .svg shapes">↑ svg</button>
+        <input type="file" id="import-svg-input" accept=".svg" style="display:none" onchange="importSVGFile(event)">
+        <button class="copy-btn" id="copy-inner-btn" onclick="copyCode()">copy</button>
+        <button class="copy-btn" id="copy-full-btn"  onclick="copyFull()">full svg</button>
+      </div>
+    </div>
+    <textarea id="code-output" readonly spellcheck="false"></textarea>
+  </div>
+</div>
+
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>
