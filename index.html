@@ -98,6 +98,7 @@
         <line x1="0"   y1="150" x2="200" y2="150" stroke="#4ade80" stroke-width="0.15" opacity="0.07"/>
       </g>
       <g id="shapes-layer"></g>
+      <g id="preview-layer" pointer-events="none"></g>
       <g id="edit-layer"></g>
       <g id="wip-layer"></g>
     </svg>
@@ -115,10 +116,14 @@
 <!-- ── Sidebar ── -->
 <div id="sidebar">
 
-  <!-- AI Generate -->
+  <!-- AI -->
   <div class="sidebar-section" id="ai-panel">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-      <h3 style="margin-bottom:0">AI Generate</h3>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:10px">
+      <h3 style="margin-bottom:0">AI</h3>
+      <div class="seg-toggle" style="max-width:120px">
+        <button class="seg-btn active" id="ai-mode-create" onclick="setAiMode('create')">create</button>
+        <button class="seg-btn"        id="ai-mode-edit"   onclick="setAiMode('edit')">edit</button>
+      </div>
       <button class="copy-btn" id="ai-key-toggle" onclick="toggleGeminiKey()" title="Gemini API key (free at aistudio.google.com)">⚙ key</button>
     </div>
     <div id="ai-key-row" style="display:none;margin-bottom:8px">
@@ -126,11 +131,30 @@
         <input type="password" class="ai-key-input" id="ai-key" placeholder="Gemini API key from aistudio.google.com">
         <button class="copy-btn" style="margin-left:4px;flex-shrink:0" onclick="saveGeminiKey()">save</button>
       </div>
-      <div style="font-size:9px;color:#3f3f46;line-height:1.4">Free tier: 1500 req/day · no card needed</div>
+      <div class="prop-row" style="margin-bottom:4px">
+        <span class="prop-label">model</span>
+        <input class="ai-key-input" id="ai-model" list="ai-model-list" onchange="saveGeminiModel()">
+        <datalist id="ai-model-list">
+          <option value="gemini-2.5-flash"><option value="gemini-2.5-pro"><option value="gemini-2.5-flash-lite">
+        </datalist>
+      </div>
+      <div style="font-size:9px;color:#3f3f46;line-height:1.4">Free tier available · no card needed</div>
     </div>
     <textarea id="ai-prompt" placeholder="describe anything… or use keywords: circle, star, fish, frog, tadpole, cat, rabbit, mushroom, bird, cloud, lightning, flame, gear, house, tree, flower, snake, person…"></textarea>
     <button class="expand-btn" id="ai-gen-btn" onclick="aiGenerate()">✦ Generate</button>
+    <div id="ai-edit-tools" style="display:none;gap:4px;margin-top:6px">
+      <button class="copy-btn" id="ai-describe-btn" onclick="copyDescribePrompt()" title="Copy the scene description + edit instructions, to paste into any AI chat">⧉ copy for any AI</button>
+      <button class="copy-btn" onclick="downloadDescription()" title="Download the scene description as JSON">↓ describe.json</button>
+    </div>
     <div id="ai-status"></div>
+    <div id="ai-proposal" style="display:none">
+      <div id="ai-proposal-note"></div>
+      <div id="ai-proposal-list"></div>
+      <div style="display:flex;gap:4px;margin-top:6px">
+        <button class="expand-btn" style="margin-top:0" onclick="applyProposal()">✓ apply checked</button>
+        <button class="copy-btn" onclick="discardProposal()">discard</button>
+      </div>
+    </div>
   </div>
 
   <div class="sidebar-section">

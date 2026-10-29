@@ -6,6 +6,8 @@ import { aiStyle, aiPath, aiLPath,
          aiSun, aiLine, aiCloud, aiLightning, aiLeaf, aiFlower, aiTree,
          aiHouse, aiFish, aiTadpole, aiFrog, aiCat, aiRabbit, aiMushroom,
          aiBird, aiFlame, aiGear, aiAnchor, aiPerson, aiSnake } from './ai-shapes.js'
+import { describeScene } from './describe.js'
+import { applyOps, opText, EDIT_SYSTEM_PROMPT } from './ops.js'
 
 // ── State ──────────────────────────────────────────────────────────────────
 let tool         = 'segment'
@@ -30,6 +32,11 @@ let expandEndCap   = 'flat'
 
 // AI key
 let geminiKey = localStorage.getItem('jv_gemini_key') || ''
+let geminiModel = localStorage.getItem('jv_gemini_model') || 'gemini-2.5-flash'
+
+// AI edit mode — proposal = { ops, enabled: [bool], note } while awaiting review
+let aiMode   = 'create'   // 'create' | 'edit'
+let proposal = null
 
 // Group state — paths whose endpoints snapped together share a group
 let groups       = []   // [{ id, memberIds: [shapeId,...] }]
@@ -108,6 +115,8 @@ window.onload = () => {
   const zcEl = document.getElementById('zoom-controls')
   zcEl.addEventListener('mouseenter', () => { zcHovered = true })
   zcEl.addEventListener('mouseleave', () => { zcHovered = false; panKeys.clear() })
+
+  document.getElementById('ai-model').value = geminiModel
 
   // Colour the key button if a Gemini key is already saved
   if (geminiKey) {
@@ -1662,7 +1671,7 @@ function render() {
         const inMulti = multiSelected.has(s.id)
         const gTag = g ? ` <span style="color:#4ade8055;font-size:9px" title="grouped">⛓</span>` : ''
         return `<div class="shape-item ${inSel ? 'selected' : ''} ${inMulti ? 'multi-sel' : ''}" onclick="selectShape(${s.id},event)">
-          <span class="shape-name" style="${s.hidden ? 'opacity:0.35' : ''}">${shapeName(s)}${gTag}</span>
+          <span class="shape-name" style="${s.hidden ? 'opacity:0.35' : ''}" ondblclick="event.stopPropagation();renameShape(${s.id})" title="double-click to name"><span class="shape-ref">s${s.id}</span>${s.label ? esc(s.label) : shapeName(s)}${gTag}</span>
           <span style="display:flex;gap:2px;align-items:center;flex-shrink:0">
             <button class="vis-btn ${s.hidden ? 'hidden-shape' : ''}" title="${s.hidden ? 'show' : 'hide'}" onclick="event.stopPropagation();toggleShapeVisible(${s.id})">${s.hidden ? '&#x1F441;&#xFE0E;' : '&#x1F441;'}</button>
             <button class="lock-btn ${s.locked ? 'locked-shape' : ''}" title="${s.locked ? 'unlock' : 'lock'}" onclick="event.stopPropagation();toggleShapeLocked(${s.id})">&#x1F512;</button>
@@ -1723,6 +1732,7 @@ function render() {
     boolRow.style.display = 'none'
   }
 
+  renderProposal()
   autoSave()
 }
 
@@ -2013,7 +2023,36 @@ function saveGeminiKey() {
   setAiStatus(val ? 'Gemini key saved — full AI enabled.' : 'Key cleared. Using local shapes.', 'ok')
 }
 
+function saveGeminiModel() {
+  geminiModel = document.getElementById('ai-model').value.trim() || 'gemini-2.5-flash'
+  localStorage.setItem('jv_gemini_model', geminiModel)
+  setAiStatus(`Model: ${geminiModel}`, 'ok')
+}
+
+// parts: Gemini content parts ({ text } / { inlineData }); returns the reply text
+async function callGemini(sysPrompt, parts, { temperature = 0.2, json = false } = {}) {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: sysPrompt }] },
+        contents: [{ parts }],
+        generationConfig: { temperature, maxOutputTokens: 8192, ...(json ? { responseMimeType: 'application/json' } : {}) },
+      }),
+    }
+  )
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error?.message || `HTTP ${res.status}`)
+  }
+  const data = await res.json()
+  return data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || ''
+}
+
 async function aiGenerate() {
+  if (aiMode === 'edit') return aiEdit()
   const raw = document.getElementById('ai-prompt').value.trim()
   if (!raw) return
 
@@ -2034,24 +2073,7 @@ Path:    {"type":"path","nodes":[{"x":N,"y":N,"locked":false},...], "segs":[null
 
 Rules: coords 0–200, bright colors on dark bg (#4ade80 green, #60a5fa blue, #f472b6 pink, #facc15 yellow, #e4e4e7 white), fill:"none" for outlines, stroke-width 1–3 normally. Compose multiple shapes as needed. Prefer C segments for organic curves.`
 
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${geminiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: sysPrompt }] },
-            contents: [{ parts: [{ text: raw }] }],
-            generationConfig: { temperature: 0.4, maxOutputTokens: 4096 },
-          }),
-        }
-      )
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.error?.message || `HTTP ${res.status}`)
-      }
-      const data = await res.json()
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+      const text = await callGemini(sysPrompt, [{ text: raw }], { temperature: 0.4 })
       const clean = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
       const parsed = JSON.parse(clean)
       const arr = Array.isArray(parsed) ? parsed : [parsed]
@@ -2129,6 +2151,221 @@ Rules: coords 0–200, bright colors on dark bg (#4ade80 green, #60a5fa blue, #f
   setAiStatus(`Added ${results.length} shape${results.length !== 1 ? 's' : ''}.`, 'ok')
 }
 
+
+// ── AI edit mode: describe → small ops → preview → approve ─────────────────
+function setAiMode(mode) {
+  aiMode = mode
+  document.getElementById('ai-mode-create').classList.toggle('active', mode === 'create')
+  document.getElementById('ai-mode-edit').classList.toggle('active', mode === 'edit')
+  document.getElementById('ai-edit-tools').style.display = mode === 'edit' ? 'flex' : 'none'
+  document.getElementById('ai-gen-btn').textContent = mode === 'edit' ? '✦ Propose edits' : '✦ Generate'
+  document.getElementById('ai-prompt').placeholder = mode === 'edit'
+    ? 'what should change? e.g. "eyes 10% bigger and 2px further apart", "soften the corner on the left ear"… select shapes to focus the AI. You can also paste ops JSON from another AI here.'
+    : 'describe anything… or use keywords: circle, star, fish, frog, tadpole, cat, rabbit, mushroom, bird, cloud, lightning, flame, gear, house, tree, flower, snake, person…'
+  setAiStatus('', '')
+}
+
+function selectionIds() {
+  const ids = [...multiSelected]
+  if (selected !== null && !ids.includes(selected)) ids.push(selected)
+  return ids
+}
+
+// Browser fallback for path data pathdata.js can't parse
+function measureD(d) {
+  const p = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+  p.setAttribute('d', d)
+  shapesLayer.appendChild(p)
+  try {
+    const len = p.getTotalLength(), pts = []
+    for (let i = 0; i <= 64; i++) { const q = p.getPointAtLength(len * i / 64); pts.push({ x: q.x, y: q.y }) }
+    return { pts, closed: /z\s*$/i.test(d) }
+  } catch { return null } finally { p.remove() }
+}
+
+function sceneDescription() {
+  return describeScene(shapes, groups, { selectedIds: selectionIds(), measureD })
+}
+
+function editRequestText(scene, request) {
+  return `SCENE SUMMARY\n${scene.summary}\n\nSCENE JSON\n${JSON.stringify(scene)}\n\nREQUEST\n${request}`
+}
+
+// Accepts {"ops":[...],"note":""}, a bare [...] array, or either inside ``` fences
+function parseOpsJson(text) {
+  const t = String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+  if (!/^[[{]/.test(t)) return null
+  let v
+  try { v = JSON.parse(t) } catch { return null }
+  if (Array.isArray(v)) return { ops: v, note: '' }
+  if (v && Array.isArray(v.ops)) return { ops: v.ops, note: v.note || '' }
+  if (v && typeof v.op === 'string') return { ops: [v], note: '' }
+  return null
+}
+
+function copyDescribePrompt() {
+  const req = document.getElementById('ai-prompt').value.trim()
+  const scene = sceneDescription()
+  const text = `${EDIT_SYSTEM_PROMPT}\n\n${editRequestText(scene, req && !parseOpsJson(req) ? req : '(the user will say what to change)')}`
+  navigator.clipboard.writeText(text).then(() => {
+    flash('ai-describe-btn', 'copied!')
+    setAiStatus('Paste into any AI chat. Paste its JSON reply back here and press Propose edits.', 'ok')
+  })
+}
+
+function downloadDescription() {
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(new Blob([JSON.stringify(sceneDescription(), null, 2)], { type: 'application/json' })),
+    download: 'jormunvector-scene.json'
+  })
+  a.click(); URL.revokeObjectURL(a.href)
+}
+
+// Shape as standalone SVG markup — no selection overlay
+function plainShapeSvg(s) {
+  const a = svgAttrs(s), b = getShapeBounds(s)
+  const rot = (s.rotation && b) ? ` transform="rotate(${s.rotation},${r(b.x+b.w/2)},${r(b.y+b.h/2)})"` : ''
+  if (s.type === 'path')    return `<path d="${pathD(s)}" ${a}${rot}/>`
+  if (s.type === 'ellipse') return `<ellipse cx="${s.cx}" cy="${s.cy}" rx="${s.rx}" ry="${s.ry}" ${a}${rot}/>`
+  if (s.type === 'rect')    return `<rect x="${s.x}" y="${s.y}" width="${s.w}" height="${s.h}" ${a}${rot}/>`
+  return ''
+}
+
+// Rendered canvas with each shape's ref printed at its centre, as base64 PNG
+async function renderScenePng(scene) {
+  const tags = scene.shapes.filter(d => d.center && !d.hidden).map(d =>
+    `<text x="${d.center.x}" y="${d.center.y}" font-size="7" font-weight="bold" font-family="monospace" fill="#fb923c" stroke="#09090b" stroke-width="1.6" paint-order="stroke" text-anchor="middle" dominant-baseline="middle">${d.ref}</text>`).join('')
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="512" height="512"><rect width="200" height="200" fill="#09090b"/>${shapes.filter(s => !s.hidden).map(plainShapeSvg).join('')}${tags}</svg>`
+  try {
+    const img = new Image()
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)
+    await img.decode()
+    const c = Object.assign(document.createElement('canvas'), { width: 512, height: 512 })
+    c.getContext('2d').drawImage(img, 0, 0)
+    return c.toDataURL('image/png').split(',')[1]
+  } catch { return null }
+}
+
+async function aiEdit() {
+  const raw = document.getElementById('ai-prompt').value.trim()
+  if (!raw) return
+  const pasted = parseOpsJson(raw)
+  if (pasted) { showProposal(pasted.ops, pasted.note || 'Ops pasted from another AI.'); return }
+  if (!shapes.length) { setAiStatus('Nothing on the canvas to edit yet.', 'error'); return }
+  if (!geminiKey) { setAiStatus('No Gemini key. Use "copy for any AI", then paste the JSON reply here.', 'error'); return }
+
+  const btn = document.getElementById('ai-gen-btn')
+  btn.textContent = '…'; btn.disabled = true
+  setAiStatus('Reading the canvas…', '')
+  try {
+    const scene = sceneDescription()
+    const parts = [{ text: editRequestText(scene, raw) }]
+    const png = await renderScenePng(scene)
+    if (png) parts.push({ inlineData: { mimeType: 'image/png', data: png } })
+    setAiStatus('Asking for edits…', '')
+    const got = parseOpsJson(await callGemini(EDIT_SYSTEM_PROMPT, parts, { json: true }))
+    if (!got) throw new Error('The AI reply was not valid ops JSON. Try again or rephrase.')
+    if (!got.ops.length) { setAiStatus(got.note || 'No changes proposed.', 'error'); return }
+    showProposal(got.ops, got.note)
+  } catch (err) {
+    setAiStatus(err.message, 'error')
+  } finally {
+    btn.textContent = '✦ Propose edits'; btn.disabled = false
+  }
+}
+
+function showProposal(ops, note) {
+  ops = ops.filter(o => o && typeof o === 'object')
+  if (!ops.length) { setAiStatus('No usable ops found.', 'error'); return }
+  proposal = { ops, enabled: ops.map(() => true), note: note || '' }
+  setAiStatus('Review the changes (orange on canvas), then apply.', 'ok')
+  render()
+}
+
+function proposalResult() {
+  if (!proposal) return null
+  return applyOps(shapes, proposal.ops.filter((_, i) => proposal.enabled[i]), { nextId })
+}
+
+function renderProposal() {
+  const box = document.getElementById('ai-proposal'), layer = document.getElementById('preview-layer')
+  shapesLayer.classList.toggle('previewing', !!proposal)
+  if (!proposal) { box.style.display = 'none'; layer.innerHTML = ''; return }
+  const res = proposalResult()
+  box.style.display = ''
+  document.getElementById('ai-proposal-note').textContent = proposal.note
+
+  const nameOf = t => {
+    const m = /^s?(\d+)$/.exec(String(t)), sh = m && shapes.find(x => x.id === +m[1])
+    return sh && sh.label ? `s${sh.id} “${sh.label}”` : String(t)
+  }
+  let k = 0
+  document.getElementById('ai-proposal-list').innerHTML = proposal.ops.map((op, i) => {
+    const on = proposal.enabled[i], rr = on ? res.results[k++] : null
+    const cls = !on ? 'op-off' : (rr.ok ? '' : 'op-err')
+    const why = rr && !rr.ok ? rr.error : (op.why || '')
+    return `<label class="op-item ${cls}">
+      <input type="checkbox" ${on ? 'checked' : ''} onchange="toggleProposalOp(${i})">
+      <span><div class="op-text">${esc(opText(op, nameOf))}</div>${why ? `<div class="op-why">${esc(why)}</div>` : ''}</span>
+    </label>`
+  }).join('')
+
+  // Ghosts: changed/new shapes in orange, deleted ones in red
+  const before = new Map(shapes.map(s => [s.id, JSON.stringify(s)]))
+  const after = new Set(res.shapes.map(s => s.id))
+  const ghost = (s, color) => {
+    const g = { ...s, stroke: color, fill: s.fill && s.fill !== 'none' ? color + '33' : 'none',
+                'stroke-width': Math.max(0.8, s['stroke-width'] ?? 1.5), strokeDash: '2 1.5', opacity: 1 }
+    let out = plainShapeSvg(g)
+    if (s.nodes && !s.d) out += s.nodes.map(n => `<circle cx="${n.x}" cy="${n.y}" r="0.9" fill="${color}"/>`).join('')
+    return out
+  }
+  layer.innerHTML =
+    res.shapes.filter(s => !s.hidden && before.get(s.id) !== JSON.stringify(s)).map(s => ghost(s, '#fb923c')).join('') +
+    shapes.filter(s => !after.has(s.id)).map(s => ghost(s, '#f87171')).join('')
+}
+
+function toggleProposalOp(i) {
+  if (!proposal) return
+  proposal.enabled[i] = !proposal.enabled[i]
+  render()
+}
+
+function applyProposal() {
+  const res = proposalResult()
+  if (!res) return
+  const n = res.results.filter(x => x.ok).length
+  if (!n) { setAiStatus('Nothing valid to apply.', 'error'); return }
+  saveState()
+  shapes = res.shapes; nextId = res.nextId
+  const live = new Set(shapes.map(s => s.id))
+  groups = groups.map(g => ({ ...g, memberIds: g.memberIds.filter(id => live.has(id)) })).filter(g => g.memberIds.length > 1)
+  if (selected !== null && !live.has(selected)) { selected = null; selectedNode = null }
+  for (const id of [...multiSelected]) if (!live.has(id)) multiSelected.delete(id)
+  proposal = null
+  render()
+  setAiStatus(`Applied ${n} edit${n !== 1 ? 's' : ''}. ⌘Z undoes them.`, 'ok')
+}
+
+function discardProposal() {
+  proposal = null
+  render()
+  setAiStatus('Discarded.', '')
+}
+
+function renameShape(id) {
+  const s = shapes.find(x => x.id === id)
+  if (!s) return
+  const name = prompt('Name this shape (helps the AI):', s.label || '')
+  if (name === null) return
+  saveState()
+  if (name.trim()) s.label = name.trim().slice(0, 60); else delete s.label
+  render()
+}
+
+function esc(t) {
+  return String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+}
 
 // Allow pressing Enter (without Shift) in the prompt textarea to trigger generation
 document.addEventListener('DOMContentLoaded', () => {
@@ -2242,7 +2479,9 @@ function resetZoom() { viewTransform = { x: 0, y: 0, scale: 1 }; applyViewTransf
 // ── Expose to HTML event handlers (ES modules don't auto-globalise) ──────────
 Object.assign(window, {
   setTool, toggleSnapGrid, undo, redo,
-  aiGenerate, toggleGeminiKey, saveGeminiKey,
+  aiGenerate, toggleGeminiKey, saveGeminiKey, saveGeminiModel,
+  setAiMode, copyDescribePrompt, downloadDescription,
+  applyProposal, discardProposal, toggleProposalOp, renameShape,
   updateProps, syncStrokeFromColor, syncFillFromColor, syncColorFromHex,
   togglePathClosed, deleteSelectedNode,
   moveShapeLayer, selectShape, deleteShape,
