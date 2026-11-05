@@ -374,6 +374,20 @@ input[type=checkbox] { accent-color: #4ade80; cursor: pointer; }
 #ai-status { font-size: 10px; min-height: 14px; color: #52525b; margin-top: 5px; line-height: 1.4; }
 #ai-status.error { color: #f87171; }
 #ai-status.ok    { color: #4ade80; }
+#ai-proposal { margin-top: 8px; }
+#ai-proposal-note { font-size: 10px; color: #a1a1aa; line-height: 1.4; margin-bottom: 6px; }
+#ai-proposal-list { max-height: 220px; overflow-y: auto; border: 1px solid #27272a; border-radius: 5px; }
+.op-item { display: flex; gap: 6px; align-items: flex-start; padding: 5px 7px; border-bottom: 1px solid #18181b; font-size: 10px; cursor: pointer; }
+.op-item:last-child { border-bottom: none; }
+.op-item:hover { background: #18181b; }
+.op-item input { margin-top: 1px; accent-color: #fb923c; flex-shrink: 0; }
+.op-text { color: #e4e4e7; }
+.op-why  { color: #52525b; margin-top: 2px; line-height: 1.35; }
+.op-item.op-err .op-text { color: #f87171; text-decoration: line-through; }
+.op-item.op-err .op-why  { color: #f87171aa; }
+.op-item.op-off .op-text { color: #52525b; }
+#shapes-layer.previewing { opacity: 0.35; }
+.shape-ref { color: #fb923c99; margin-right: 4px; }
 
 /* ── Hex color input ── */
 .hex-input {
